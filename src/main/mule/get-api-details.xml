@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+	<http:listener-config name="HTTP_Listener_config" doc:name="HTTP Listener config" doc:id="a0b7b0b9-1434-475a-a488-2c73e1e8f1cc" >
+		<http:listener-connection host="0.0.0.0" port="8081" />
+	</http:listener-config>
+	<http:request-config name="HTTP_Request_configuration" doc:name="HTTP Request configuration" doc:id="c71a4fc6-354c-4d8a-90d2-7c6d1df797fe" >
+		<http:request-connection host="anypoint.mulesoft.com" port="443" />
+	</http:request-config>
+	<http:request-config name="HTTP_Request_configuration1" doc:name="HTTP Request configuration" doc:id="377740b6-c691-4e28-9754-40ac1ab8ae01" >
+		<http:request-connection host="anypoint.mulesoft.com" />
+	</http:request-config>
+	<flow name="get-api-details-flow" doc:id="c8d00ae5-04ba-4323-aac2-841fe9d9de7a" >
+		<http:listener doc:name="Listener" doc:id="68fbd769-356c-43d7-ae33-2194c06dbfbb" config-ref="HTTP_Listener_config" path="/api-details"/>
+		<ee:transform doc:name="requiredParams" doc:id="a6531df0-253c-4462-bb24-f609618a4d5c" >
+			<ee:message >
+			</ee:message>
+			<ee:variables >
+				<ee:set-variable variableName="initials" ><![CDATA[attributes.headers.api-initials default ""]]></ee:set-variable>
+				<ee:set-variable variableName="listOfArray" ><![CDATA[%dw 2.0
+output application/java
+---
+[] as Array]]></ee:set-variable>
+				<ee:set-variable variableName="platformCreds" ><![CDATA[%dw 2.0
+output application/json
+---
+{
+	"username": attributes.headers.username,
+	"password": attributes.headers.password
+}]]></ee:set-variable>
+				<ee:set-variable variableName="envId" ><![CDATA[%dw 2.0
+output application/json
+---
+attributes.headers.env-Id default null]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<flow-ref doc:name="get-bearer-token-subflow" doc:id="227cb414-6c9d-4b56-8057-2bfa1557e14f" name="get-bearer-token-subflow"/>
+	</flow>
+	<sub-flow name="get-bearer-token-subflow" doc:id="ff6f4ec1-4e9e-42b7-bbe4-fd308e6d566c" >
+		<http:request method="POST" doc:name="platformLogin" doc:id="41250a33-16cb-4264-9092-4fcc52755c1e" config-ref="HTTP_Request_configuration" path="/accounts/login">
+			<http:body ><![CDATA[#[vars.platformCreds]]]></http:body>
+		</http:request>
+		<ee:transform doc:name="responsePayload" doc:id="0e037e14-3ebe-4805-aed2-19e8289acedc" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</sub-flow>
+	<sub-flow name="get-all-api-details-subflow" doc:id="d65a660b-145e-4199-b080-72daa37dba0b" >
+		<http:request method="GET" doc:name="getAPIDetails" doc:id="af6af927-2c7a-4172-bdd2-9401e4030039" path="/cloudhub/api/v2/applications" config-ref="HTTP_Request_configuration1">
+			<http:headers ><![CDATA[#[{
+	"X-ANYPNT-ENV-ID": vars.envId,
+	"Authorization" : "bearer " ++ payload.access_token
+}]]]></http:headers>
+		</http:request>
+		<foreach doc:name="For Each" doc:id="950ee624-d62c-4def-a3cb-25b980395989" >
+			<choice doc:name="Choice" doc:id="2c9a200d-394e-49c9-b56e-af873906421e" >
+				<when expression="#[payload.domain startsWith ('$(vars.initials)')]">
+					<logger level="INFO" doc:name="Logger" doc:id="4fa708cb-744f-4fa3-aece-d7ab4c925277" message="#[payload]"/>
+					<ee:transform doc:name="listOfArray" doc:id="665e4f24-62b7-4b38-8bf2-b40d5279925c" >
+						<ee:message >
+						</ee:message>
+						<ee:variables >
+							<ee:set-variable variableName="listOfArray" ><![CDATA[%dw 2.0
+output application/json
+---
+flatten (vars.listOfArray ++ [{
+	"API Name": payload.domain,
+	"Status": payload.status,
+	"VCores": payload.workers.'type'.cpu,
+	"Workers": payload.workers.'amount'
+}]
+)
+]]></ee:set-variable>
+						</ee:variables>
+					</ee:transform>
+				</when>
+				<otherwise >
+					<logger level="INFO" doc:name="Logger" doc:id="71c944ce-6f7c-43f0-a024-2d9b572cd2e9" message="#[payload]"/>
+				</otherwise>
+			</choice>
+		</foreach>
+		<ee:transform doc:name="payloadToCSV" doc:id="d95b8f31-e192-4376-9fc7-3a8db1110075" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/csv
+---
+vars.listOfArray]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</sub-flow>
+</mule>

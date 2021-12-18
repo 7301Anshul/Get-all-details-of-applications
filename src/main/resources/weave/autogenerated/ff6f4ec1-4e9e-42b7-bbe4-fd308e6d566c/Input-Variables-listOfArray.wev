@@ -1,0 +1,4 @@
+%dw 2.0
+
+type auto_ff6f4ec1_4e9e_42b7_bbe4_fd308e6d566c_Input_Variables_listOfArray = Array<Nothing>
+
